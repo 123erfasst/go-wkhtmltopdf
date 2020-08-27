@@ -151,6 +151,7 @@ type PDFGenerator struct {
 	outlineOptions
 
 	Cover      cover
+	preTOC     []page
 	TOC        toc
 	OutputFile string //filename to write to, default empty (writes to internal buffer)
 
@@ -169,6 +170,11 @@ func (pdfg *PDFGenerator) Args() []string {
 		args = append(args, "cover")
 		args = append(args, pdfg.Cover.Input)
 		args = append(args, pdfg.Cover.pageOptions.Args()...)
+	}
+	for _, page := range pdfg.preTOC {
+		args = append(args, "page")
+		args = append(args, page.InputFile())
+		args = append(args, page.Args()...)
 	}
 	if pdfg.TOC.Include {
 		args = append(args, "toc")
@@ -198,6 +204,13 @@ func (pdfg *PDFGenerator) ArgString() string {
 // It is a Page when read from file or URL or a PageReader when read from memory.
 func (pdfg *PDFGenerator) AddPage(p page) {
 	pdfg.pages = append(pdfg.pages, p)
+}
+
+// AddPageBeforeTOC adds a new input page to the document before the Table of contents.
+// A page is an input HTML page, it can span multiple pages in the output document.
+// It is a Page when read from file or URL or a PageReader when read from memory.
+func (pdfg *PDFGenerator) AddPageBeforeTOC(p page) {
+	pdfg.preTOC = append(pdfg.pages, p)
 }
 
 // SetPages resets all pages

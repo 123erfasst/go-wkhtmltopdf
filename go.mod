@@ -1,3 +1,3 @@
-module github.com/SebastiaanKlippert/go-wkhtmltopdf
+module github.com/123erfasst/go-wkhtmltopdf
 
 go 1.12

@@ -29,9 +29,9 @@ type globalOptions struct {
 	NoCollate         boolOption   // Do not collate when printing multiple copies (default collate)
 	NoPdfCompression  boolOption   // Do not use lossless compression on pdf objects
 	Orientation       stringOption // Set orientation to Landscape or Portrait (default Portrait)
-	PageHeight        uintOption   // Page height
+	PageHeight        floatOption  // Page height
 	PageSize          stringOption // Set paper size to: A4, Letter, etc. (default A4)
-	PageWidth         uintOption   // Page width
+	PageWidth         floatOption  // Page width
 	Quiet             boolOption   // Be less verbose
 	ReadArgsFromStdin boolOption   // Read command line arguments from stdin
 	Readme            boolOption   // Output program readme
@@ -319,9 +319,9 @@ func newGlobalOptions() globalOptions {
 		NoCollate:         boolOption{option: "no-collate"},
 		NoPdfCompression:  boolOption{option: "no-pdf-compression"},
 		Orientation:       stringOption{option: "orientation"},
-		PageHeight:        uintOption{option: "page-height"},
+		PageHeight:        floatOption{option: "page-height"},
 		PageSize:          stringOption{option: "page-size"},
-		PageWidth:         uintOption{option: "page-width"},
+		PageWidth:         floatOption{option: "page-width"},
 		Quiet:             boolOption{option: "quiet"},
 		ReadArgsFromStdin: boolOption{option: "read-args-from-stdin"},
 		Readme:            boolOption{option: "readme"},

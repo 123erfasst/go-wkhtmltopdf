@@ -3,6 +3,7 @@ package wkhtmltopdf
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 //the cached mutexed path as used by findPath()
@@ -103,7 +105,9 @@ func NewPageReader(input io.Reader) *PageReader {
 	}
 }
 
-type page interface {
+// PageProvider is the interface which provides a single input page.
+// Implemented by Page and PageReader.
+type PageProvider interface {
 	Args() []string
 	InputFile() string
 	Reader() io.Reader
@@ -151,7 +155,7 @@ type PDFGenerator struct {
 	outlineOptions
 
 	Cover      cover
-	preTOC     []page
+	preTOC     []PageProvider
 	TOC        toc
 	OutputFile string //filename to write to, default empty (writes to internal buffer)
 
@@ -159,7 +163,8 @@ type PDFGenerator struct {
 	outbuf    bytes.Buffer
 	outWriter io.Writer
 	stdErr    io.Writer
-	pages     []page
+	pages     []PageProvider
+	timeout   *time.Duration
 }
 
 //Args returns the commandline arguments as a string slice
@@ -202,26 +207,26 @@ func (pdfg *PDFGenerator) ArgString() string {
 // AddPage adds a new input page to the document.
 // A page is an input HTML page, it can span multiple pages in the output document.
 // It is a Page when read from file or URL or a PageReader when read from memory.
-func (pdfg *PDFGenerator) AddPage(p page) {
+func (pdfg *PDFGenerator) AddPage(p PageProvider) {
 	pdfg.pages = append(pdfg.pages, p)
 }
 
 // AddPageBeforeTOC adds a new input page to the document before the Table of contents.
 // A page is an input HTML page, it can span multiple pages in the output document.
 // It is a Page when read from file or URL or a PageReader when read from memory.
-func (pdfg *PDFGenerator) AddPageBeforeTOC(p page) {
+func (pdfg *PDFGenerator) AddPageBeforeTOC(p PageProvider) {
 	pdfg.preTOC = append(pdfg.pages, p)
 }
 
 // SetPages resets all pages
-func (pdfg *PDFGenerator) SetPages(p []page) {
+func (pdfg *PDFGenerator) SetPages(p []PageProvider) {
 	pdfg.pages = p
 }
 
 // ResetPages drops all pages previously added by AddPage or SetPages.
 // This allows reuse of current instance of PDFGenerator with all of it's configuration preserved.
 func (pdfg *PDFGenerator) ResetPages() {
-	pdfg.pages = []page{}
+	pdfg.pages = []PageProvider{}
 }
 
 // Buffer returns the embedded output buffer used if OutputFile is empty
@@ -245,6 +250,11 @@ func (pdfg *PDFGenerator) SetOutput(w io.Writer) {
 // output of Stderr is kept in an internal buffer and returned as error message if there was an error when calling wkhtmltopdf.
 func (pdfg *PDFGenerator) SetStderr(w io.Writer) {
 	pdfg.stdErr = w
+}
+
+// SetTimeout sets timeout after which the pdf creation will be aborted
+func (pdfg *PDFGenerator) SetTimeout(t *time.Duration) {
+	pdfg.timeout = t
 }
 
 // WriteFile writes the contents of the output buffer to a file
@@ -300,8 +310,18 @@ func (pdfg *PDFGenerator) Create() error {
 }
 
 func (pdfg *PDFGenerator) run() error {
-	// create command
-	cmd := exec.Command(pdfg.binPath, pdfg.Args()...)
+	// create command context
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if pdfg.timeout != nil {
+		ctx, cancel = context.WithTimeout(ctx, *pdfg.timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+
+	// create actual command
+	cmd := exec.CommandContext(ctx, pdfg.binPath, pdfg.Args()...)
 
 	// set stderr to the provided writer, or create a new buffer
 	var errBuf *bytes.Buffer
@@ -328,6 +348,18 @@ func (pdfg *PDFGenerator) run() error {
 
 	// run cmd to create the PDF
 	err := cmd.Run()
+
+	if ctxErr := ctx.Err(); ctxErr == context.DeadlineExceeded {
+		return pdfg.handleError(ctxErr, errBuf)
+	}
+
+	if err != nil {
+		return pdfg.handleError(err, errBuf)
+	}
+	return nil
+}
+
+func (pdfg *PDFGenerator) handleError(err error, errBuf *bytes.Buffer) error {
 	if err != nil {
 		// on an error, return the contents of Stderr if it was our own buffer
 		// if Stderr was set to a custom writer, just return err

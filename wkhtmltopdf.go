@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 //the cached mutexed path as used by findPath()
@@ -164,7 +163,6 @@ type PDFGenerator struct {
 	outWriter io.Writer
 	stdErr    io.Writer
 	pages     []PageProvider
-	timeout   *time.Duration
 }
 
 //Args returns the commandline arguments as a string slice
@@ -252,11 +250,6 @@ func (pdfg *PDFGenerator) SetStderr(w io.Writer) {
 	pdfg.stdErr = w
 }
 
-// SetTimeout sets timeout after which the pdf creation will be aborted
-func (pdfg *PDFGenerator) SetTimeout(t *time.Duration) {
-	pdfg.timeout = t
-}
-
 // WriteFile writes the contents of the output buffer to a file
 func (pdfg *PDFGenerator) WriteFile(filename string) error {
 	return ioutil.WriteFile(filename, pdfg.Bytes(), 0666)
@@ -306,18 +299,17 @@ func (pdfg *PDFGenerator) findPath() error {
 
 // Create creates the PDF document and stores it in the internal buffer if no error is returned
 func (pdfg *PDFGenerator) Create() error {
-	return pdfg.run()
+	return pdfg.run(context.Background())
 }
 
-func (pdfg *PDFGenerator) run() error {
+func (pdfg *PDFGenerator) CreateWithContext(ctx context.Context) error {
+	return pdfg.run(ctx)
+}
+
+func (pdfg *PDFGenerator) run(ctx context.Context) error {
 	// create command context
 	var cancel context.CancelFunc
-	ctx := context.Background()
-	if pdfg.timeout != nil {
-		ctx, cancel = context.WithTimeout(ctx, *pdfg.timeout)
-	} else {
-		ctx, cancel = context.WithCancel(ctx)
-	}
+	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
 	// create actual command
@@ -350,7 +342,7 @@ func (pdfg *PDFGenerator) run() error {
 	err := cmd.Run()
 
 	if ctxErr := ctx.Err(); ctxErr == context.DeadlineExceeded {
-		return pdfg.handleError(ctxErr, errBuf)
+		return pdfg.handleError(ctxErr, nil)
 	}
 
 	if err != nil {
